@@ -10,14 +10,14 @@ struct BetsApi {
     client: reqwest::Client
 }
 
-#[derive(Serialize, Deserialize)]
-struct UpcomingMatchesResults {
+#[derive(Serialize, Deserialize, Debug)]
+struct MatchResult {
     success: u8,
     pager: Pager,
-    results: Vec<UpcomingMatch>
+    results: Vec<ApiMatch>
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Pager {
     page: u8,
     per_page: u8,
@@ -25,7 +25,7 @@ struct Pager {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct UpcomingMatch {
+struct ApiMatch {
     id: String,
     sport_id: String,
     time: String,
@@ -83,7 +83,7 @@ impl BetsApi {
         team_id: Option<String>,
         cc: Option<String>,
         day: Option<NaiveDate>,
-        skip_esports: Option<String>, ) -> Result<Vec<UpcomingMatch>, Box<dyn Error>> {
+        skip_esports: Option<String>, ) -> Result<Vec<ApiMatch>, Box<dyn Error>> {
             let league_id = league_id.unwrap_or_else(|| String::new());
             let team_id = team_id.unwrap_or_else(|| String::new());
             let cc = cc.unwrap_or_else(|| String::new());
@@ -91,7 +91,6 @@ impl BetsApi {
 
             let mut matches = Vec::new();
             let mut page = 1;
-
 
             loop {
                 let mut url = format!(
@@ -105,7 +104,7 @@ impl BetsApi {
                 }
 
                 let response = self.client.get(&url).send().await?;
-                let upcoming_matches: UpcomingMatchesResults = response.json().await?;
+                let upcoming_matches: MatchResult = response.json().await?;
                 if !upcoming_matches.results.is_empty() {
                     matches.extend(upcoming_matches.results);
                 }
@@ -117,10 +116,53 @@ impl BetsApi {
 
             Ok(matches)
     }
+
+    async fn get_played_match(&self,
+                              sport_id: &str,
+                              league_id: Option<String>,
+                              team_id: Option<String>,
+                              cc: Option<String>,
+                              day: Option<NaiveDate>,
+                              skip_esports: Option<String>, ) -> Result<Vec<ApiMatch>, Box<dyn Error>> {
+
+        let league_id = league_id.unwrap_or_else(|| String::new());
+        let team_id = team_id.unwrap_or_else(|| String::new());
+        let cc = cc.unwrap_or_else(|| String::new());
+        let skip_esports = skip_esports.unwrap_or_else(|| String::new());
+
+        let mut matches = Vec::new();
+        let mut page = 1;
+
+
+        loop {
+            let mut url = format!(
+                "https://api.b365api.com/v3/events/ended?sport_id={}&token={}&league_id={}&team_id={}&cc={}&skip_esports={}&page={}",
+                sport_id, self.api_key, league_id, team_id, cc, skip_esports,page
+            );
+
+            if let Some(day) = day {
+                let date = day.format("20%y%m%d").to_string();
+                url.push_str(&format!("&day={}", date));
+            }
+
+            let response = self.client.get(&url).send().await?;
+            let played_matches: MatchResult = response.json().await?;
+            if !played_matches.results.is_empty() {
+                matches.extend(played_matches.results);
+            }
+            else {
+                break;
+            }
+            page += 1;
+        }
+
+        Ok(matches)
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let api = BetsApi::new("").await?;
+    let result = api.get_played_match("92",Some("22307".to_string()),None,None,NaiveDate::from_ymd_opt(2023,12,29),None).await?;
     Ok(())
 }
