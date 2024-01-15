@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use chrono::{NaiveDate};
@@ -14,26 +15,33 @@ struct BetsApi {
 struct MatchResult {
     success: u8,
     pager: Pager,
-    results: Vec<ApiMatch>
+    results: Vec<ApiMatches>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Pager {
     page: u8,
     per_page: u8,
-    total: i32
+    total: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct ApiMatch {
-    id: String,
-    sport_id: String,
-    time: String,
+struct ApiMatches {
+    id: Option<String>,
+    sport_id: Option<String>,
+    time: Option<String>,
     time_status: Option<String>,
     league: Option<League>,
     home: Option<HomeAway>,
+    o_home: Option<HomeAway>,
     away: Option<HomeAway>,
+    o_away: Option<HomeAway>,
     ss: Option<String>,
+    scores: Option<HashMap<String, Score>>,
+    bet365id: Option<String>,
+    // attribute for specific sport parameter like soccer player stats which are not available in other sports
+    #[serde(flatten)]
+    extra: Option<serde_json::Value>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -51,6 +59,15 @@ struct HomeAway {
     cc: Option<String>,
 }
 
+
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Score {
+    home: Option<String>,
+    away: Option<String>,
+}
+
+
 impl BetsApi {
     async fn new(api_key: &str) -> Result<Self, Box<dyn Error>> {
         let client = reqwest::Client::builder()
@@ -58,7 +75,8 @@ impl BetsApi {
             .build()?;
 
         // http request to see if the api key is valid
-        let response = client
+
+      let response = client
             .get(format!("https://api.b365api.com/v3/events/upcoming?sport_id=92&token={}", api_key))
             .send()
             .await?;
@@ -83,7 +101,7 @@ impl BetsApi {
         team_id: Option<String>,
         cc: Option<String>,
         day: Option<NaiveDate>,
-        skip_esports: Option<String>, ) -> Result<Vec<ApiMatch>, Box<dyn Error>> {
+        skip_esports: Option<String>) -> Result<Vec<ApiMatches>, Box<dyn Error>> {
             let league_id = league_id.unwrap_or_else(|| String::new());
             let team_id = team_id.unwrap_or_else(|| String::new());
             let cc = cc.unwrap_or_else(|| String::new());
@@ -123,7 +141,7 @@ impl BetsApi {
                               team_id: Option<String>,
                               cc: Option<String>,
                               day: Option<NaiveDate>,
-                              skip_esports: Option<String>, ) -> Result<Vec<ApiMatch>, Box<dyn Error>> {
+                              skip_esports: Option<String>) -> Result<Vec<ApiMatches>, Box<dyn Error>> {
 
         let league_id = league_id.unwrap_or_else(|| String::new());
         let team_id = team_id.unwrap_or_else(|| String::new());
@@ -158,11 +176,20 @@ impl BetsApi {
 
         Ok(matches)
     }
+
+    async fn get_in_play_match(&self,
+                               sport_id: &str,
+                               league_id: Option<String>) -> Result<ApiMatches,Box<dyn Error>> {
+        let league_id = league_id.unwrap_or_else(|| String::new());
+        let url = format!("https://api.b365api.com/v3/events/inplay?sport_id={}&token={}&league_id={}",sport_id,self.api_key,league_id);
+        let response = self.client.get(url).send().await?;
+        let matches: ApiMatches = response.json().await?;
+        Ok(matches)
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let api = BetsApi::new("").await?;
-    let result = api.get_played_match("92",Some("22307".to_string()),None,None,NaiveDate::from_ymd_opt(2023,12,29),None).await?;
     Ok(())
 }
